@@ -10,13 +10,29 @@ import random
 # Tij = tempo de processamento do job i na máquina j (Ex: [[3, 2, 5], [4, 3, 2], [2, 1, 4], [3, 4, 2], [2, 3, 4]])
 # Oij = ordem de processamento do job i (Ex: [[1, 2, 3], [2, 1, 3], [3, 1, 2], [2, 3, 1], [1, 3, 2]])
 
+# Solução:
+# taskSeq = sequência de tarefas por máquina (Ex: [[[0, 0, 3], [1, 3, 5]], [[2, 0, 2], [3, 2, 6]], [[4, 0, 2], [0, 3, 5]]])
+
+#Restrições:
+# 1. Cada job deve ser processado em cada máquina uma única vez
+# 2. Cada tarefa de um job deve ser processado em ordem
+# 3. Cada máquina deve processar uma tarefa por vez
+# 4. Cada job só pode ser processado em uma máquina por vez
+
+
 class SolutionJSS():
     def __init__(self):
+        #taskSeq: List[List[List[int]]] = [[job, start, end]]
         self.taskSeq : List[List[List[int]]] = []
-        self.T : List[List[int]] = []
-        self.makespan : int = 0
-        self.maxTimeUnits : int = 0
         
+        #makespan: int = tempo total de conclusão de todas as tarefas
+        self.makespan : int = 0
+        
+        #Util
+        self.T : List[List[int]] = []
+        self.maxTimeUnits : int = 0
+    
+    #setSolution: Define uma solução (Pra evitar deep copy)
     def setSolution(self, taskSeq: List[List[List[int]]], makespan: int = 0, maxTimeUnits: int = 0, T: List[List[int]] = []):
         self.taskSeq = []
         for m in range(len(taskSeq)):
@@ -27,7 +43,8 @@ class SolutionJSS():
         self.makespan = makespan
         self.maxTimeUnits = maxTimeUnits
         self.T = T
-        
+    
+    #getSolution: Retorna a solução (Pra evitar deep copy)
     def getSolution(self):
         return self.taskSeq, self.makespan, self.maxTimeUnits, self.T
         
@@ -43,7 +60,10 @@ class SolutionJSS():
             
         return resp
     
-    def rescheduleSolution(self, m: int): 
+    #rescheduleSolution: Reorganiza a solução de acordo com a mudança no tempo inicial das tarefas
+    #Após mudanças de tempos iniciais, é necessário reorganizar a sequência de tarefas
+    #Tarefas seguem a ordem do taskSeq, logo, se uma tarefa colide com outra, a mais pro final da lista é adiada
+    def rescheduleSolution(self, m: int):  #O(n^2)
         for k in range(len(self.taskSeq[m])):
             if k == 0:
                 task = self.taskSeq[m][k]
@@ -57,14 +77,18 @@ class SolutionJSS():
                 else:
                     self.taskSeq[m][k][2] = currentTask[1] + self.T[currentTask[0]][m]
                     
-        self.makespan = max([max([task[2] for task in self.taskSeq[k]]) for k in range(len(self.taskSeq))])
+        self.makespan = max([max([task[2] for task in self.taskSeq[k]]) for k in range(len(self.taskSeq))]) #O(n^2)
                     
-    
+#Contexto do Problema    
 class ContextJSS():
     def __init__(self):
+        #Numero de Jobs
         self.J : int = 0
+        #Numero de Máquinas
         self.M : int = 0
+        #Tempos de Processamento
         self.T : List[List[int]] = []
+        #Ordem de Processamento
         self.O : List[List[int]] = []
         
     def load(self, fileName: str):
@@ -98,6 +122,8 @@ class ContextJSS():
             resp += f"Job {i}: {self.O[i]}\n"
         return resp
     
+    #Gera uma solução inicial, escolhe aleatóriamente se um job vai ser escolhido por ordem de tamanho ou aleatóriamente
+    # + ou - graps
     def generateSolution(problem: 'ContextJSS') -> SolutionJSS:
         solution = SolutionJSS()
         maxTimeUnits = sum([sum(problem.T[j]) for j in range(problem.J)])
@@ -129,15 +155,19 @@ class ContextJSS():
         solution.makespan = makespan
         return solution       
     
+    #minimize: Função de avaliação da solução
     def minimize(self,solution: SolutionJSS) -> int: #~ N^3
         penalty = 0
         maxTimeUnits = solution.maxTimeUnits
         
         tasks = []
-        
+        #Se a solução for mais duradoura que a soma de todos os tempos, algo está bem errado
         if solution.makespan > maxTimeUnits:
             return solution.makespan + 1000000
         
+        #Pra cada job, verifica pega a sua ordem de processamento e:
+        # 1. Verifica se a ordem de processamento está de acordo com O[j]
+        # 2. Verifica se o job está sendo processado em 2 máquinas ao mesmo tempo
         for j in range(self.J):
             for m in range(self.M):
                 for i in range(self.J):
@@ -170,6 +200,7 @@ class Move():
     def eq(self, problemCtx: 'ContextJSS', m2: 'Move'):
         pass
 
+#Movimento de Troca I por J
 class SwapMove(Move):
     def __init__(self, i: int, j: int, m: int):
         self.i = i
@@ -200,7 +231,8 @@ class SwapMove(Move):
         return True
     def eq(self, problemCtx, m2: 'SwapMove'):
         return (self.i == m2.i) and (self.j == m2.j) and (self.m == m2.m)
-    
+
+#Determina uma troca aleatória
 class NSSwapMove():
     def randomMove(problemCtx: 'ContextJSS', sol: SolutionJSS) -> SwapMove:
         i = random.randint(0, problemCtx.J - 1)
@@ -209,7 +241,9 @@ class NSSwapMove():
             j = random.randint(0, problemCtx.J - 1)
         m = random.randint(0, problemCtx.M - 1)
         return SwapMove(i, j, m)
-    
+
+#Movimento de realocação, move o tempo inicial de uma tarefa i para um tempo t
+#Verifica quem ocupa o tempo t e insere a tarefa i antes no taskSeq
 class RealocMove(Move):
     def __init__(self, i: int, t: int, m: int):
         self.i = i
@@ -236,7 +270,8 @@ class RealocMove(Move):
         return self.t + problemCtx.T[task[0]][self.m] <= maxTimeUnits
     def eq(self, problemCtx, m2: 'RealocMove'):
         return (self.i == m2.i) and (self.t == m2.t) and (self.m == m2.m)
-    
+
+#Determina uma realocação aleatória
 class NSRealocMove():
     def randomMove(problemCtx: 'ContextJSS', sol: SolutionJSS) -> RealocMove:
         i = random.randint(0, problemCtx.J - 1)
@@ -246,7 +281,7 @@ class NSRealocMove():
             t = random.randint(0, sol.makespan)
         return RealocMove(i, t, m)
     
-    
+#Iterador da vizinhança
 class MoveIterator():
     def __init__(self, i: int, j: int, m: int, type: int):
         self.i = i
@@ -294,9 +329,9 @@ class MoveIterator():
             return SwapMove(self.i, self.j, self.m)
         else:
             return RealocMove(self.i, self.j, self.m)
-        
+
+#Classe de auxilio para movimentação
 class NSSeqMove():
-    @staticmethod
     def getIterator(problemCtx: 'ContextJSS', sol: SolutionJSS) -> MoveIterator:
         return MoveIterator(0, 1, 0, 0)
     
