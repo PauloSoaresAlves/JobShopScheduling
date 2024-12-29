@@ -1,40 +1,25 @@
 from typing import List
-import random, copy
+import multiprocessing, time, random
 
+#Classe que representa um indivíduo da população
 class InstanceJSS():
-    def __init__(self,taskSeq: List[List[List[int]]], T: List[List[int]]):
-        self.taskSeq = taskSeq
+    def __init__(self,solution: List[int]):
+        self.solution = solution
         self.apt = 0
-        self.T = T
         
     def __str__(self):
-        resp = ""
-        for m in range(len(self.taskSeq)):
-            resp += f"Machine {m}: \n"
-            for task in self.taskSeq[m]:
-                resp += f" {task[0]}: [{task[1]} - {task[2]}] "
-            resp += "\n"
-        resp += "\nFitness: " + str(self.apt)
-            
-        return resp
+        return f"Solution: {self.solution} - APT: {self.apt}"
     
-    def rescheduleSolution(self, m: int):  #O(n^2)
-        for k in range(len(self.taskSeq[m])):
-            if k == 0:
-                task = self.taskSeq[m][k]
-                self.taskSeq[m][k][2] = task[1] + self.T[task[0]][m]
-            else:
-                currentTask = self.taskSeq[m][k]
-                lastTask = self.taskSeq[m][k - 1]
-                if currentTask[1] < lastTask[2]:
-                    self.taskSeq[m][k][1] = lastTask[2]
-                    self.taskSeq[m][k][2] = lastTask[2] + self.T[currentTask[0]][m]
-                else:
-                    self.taskSeq[m][k][2] = currentTask[1] + self.T[currentTask[0]][m]
+    def mutate(self):
+        i = random.randint(0, len(self.solution) - 1)
+        j = random.randint(0, len(self.solution) - 1)
+        while self.solution[i] == self.solution[j]:
+            j = random.randint(0, len(self.solution) - 1)
+        self.solution[i], self.solution[j] = self.solution[j], self.solution[i]
                     
-        
+#Classe geral, que representa o contexto do problema      
 class ContextJSS():
-    def __init__(self):
+    def __init__(self, mutationRate: 0.1, populationSize: 10):
         #Numero de Jobs
         self.J : int = 0
         #Numero de Máquinas
@@ -43,10 +28,10 @@ class ContextJSS():
         self.T : List[List[int]] = []
         #Ordem de Processamento
         self.O : List[List[int]] = []
-        
-        self.maxTimeUnits = 0
-        
-        self.mutationRate = 0.3
+        #Taxa de Mutação
+        self.mutationRate = mutationRate
+        #Tamanho da População
+        self.populationSize = populationSize
         
     def load(self, fileName: str):
         file = open(fileName, "r")
@@ -64,11 +49,9 @@ class ContextJSS():
                     lastMachine = line[j]
                 else:
                     self.T[i][lastMachine] = line[j]
-        
+                    
         file.close()
-        
-        self.maxTimeUnits = sum(self.T[i][j] for i in range(self.J) for j in range(self.M))
-        
+    
     def __str__(self):
         resp = f"Number of Jobs: {self.J} x Number of Machines: {self.M}\n\n"
         resp += "Processing Times:\n"
@@ -81,64 +64,107 @@ class ContextJSS():
             resp += f"Job {i}: {self.O[i]}\n"
         return resp
     
-    def generateSolution(self) -> InstanceJSS:
-        tasks = [i for i in range(self.J * self.M)]
+    #Cria a população inicial
+    #Cada indivídio é um vetor de tamanho J*M, onde cada job é repetido M vezes, representando a ordem lógica de execução
+    def createInitialPopulation(self):
+        population = []
+        for _ in range(self.populationSize):
+            newSolution = [i for i in range(0, self.J) for _ in range(self.M)]
+            random.shuffle(newSolution)
+            population.append(InstanceJSS(newSolution))
+    
+        return population
+    
+    def evaluateSolution(self, instance: InstanceJSS):
+        solution = instance.solution
         
+        #Guarda informações sobre o tempo atual de cada máquia e de cada job
+        currentOperation = [0 for _ in range(self.J)]
+        machineTime = [0 for _ in range(self.M)]
+        jobTime = [0 for _ in range(self.J)]
+        
+        maxTime = 0
+        
+        for i in range(len(solution)):
+            job = solution[i]
+            machine = self.O[job][currentOperation[job]]
+            time = self.T[job][machine]
+            
+            if machineTime[machine] > jobTime[job]:
+                machineTime[machine] += time
+                jobTime[job] = machineTime[machine]
+            else:
+                jobTime[job] += time
+                machineTime[machine] = jobTime[job]
+                
+                
+            maxTime = max(maxTime, machineTime[machine])
+            
+            currentOperation[job] += 1
+            
+        instance.apt = maxTime
+        
+    def printDetailedSolution(self, instance: InstanceJSS):
+        solution = instance.solution
+        currentOperation = [0 for _ in range(self.J)]
+        machineTime = [0 for _ in range(self.M)]
+        jobTime = [0 for _ in range(self.J)]
+        
+        
+        #Guarda a sequencia de tarefas em cada maquina
         taskSeq = [[] for _ in range(self.M)]
         
-        while tasks:
-            task = random.choice(tasks)
-            tasks.remove(task)
-            job = task // self.M
-            machine = task % self.M
-            if not taskSeq[machine]:
-                task = [job, 0, self.T[job][machine]]
+        for i in range(len(solution)):
+            job = solution[i]
+            machine = self.O[job][currentOperation[job]]
+            time = self.T[job][machine]
+            
+            if machineTime[machine] > jobTime[job]:
+                taskSeq[machine].append([job, machineTime[machine], machineTime[machine] + time])
+                
+                machineTime[machine] += time
+                jobTime[job] = machineTime[machine]
             else:
-                lastTask = taskSeq[machine][-1]
-                task = [job, lastTask[2], lastTask[2] + self.T[job][machine]]
-            taskSeq[machine].append(task)
+                taskSeq[machine].append([job, jobTime[job], jobTime[job] + time])
                 
-        instance = InstanceJSS(taskSeq, self.T)
-        return instance
+                jobTime[job] += time
+                machineTime[machine] = jobTime[job]
+            
+            currentOperation[job] += 1
+        
+        print(f"\n{instance}")
+        for m in range(self.M):
+            print(f"\nMachine {m}: ")
+            for task in taskSeq[m]:
+                print(f"Job {task[0]}: [{task[1]} - {task[2]}]", end = " ")
+        print()
     
-    def evaluateInstance(self,instance: 'InstanceJSS'):
-        penalty = 0
+    #Crossover utilizando Precedence Preservative Crossover (PPX)
+    def crossoverInstances(self, instance1: InstanceJSS, instance2: InstanceJSS):
+        newSolution = []
+        instance1Cpy = instance1.solution.copy()
+        instance2Cpy = instance2.solution.copy()
+        crossGene = [random.randint(0,1) for _ in range(len(instance1Cpy))]
         
-        tasks = []
-        
-        makespan = 0
-        
-        #Pra cada job, verifica pega a sua ordem de processamento e:
-        # 1. Verifica se a ordem de processamento está de acordo com O[j]
-        # 2. Verifica se o job está sendo processado em 2 máquinas ao mesmo tempo
-        for j in range(self.J):
-            for m in range(self.M):
-                for i in range(self.J):
-                    makespan = max(makespan, instance.taskSeq[m][i][2])
-                    if instance.taskSeq[m][i][0] == j:
-                        tasks.append({"t": instance.taskSeq[m][i], "m": m})
-                        break
-            tasks.sort(key = lambda x: x["t"][1])
-            outOfOrder = False
-            order = 0
-            while tasks:
-                task = tasks.pop(0)
-                if not outOfOrder:
-                    if self.O[j][order] == task["m"]:
-                        order += 1
-                    else:
-                        outOfOrder = True
-                        penalty += 100
-                for i in range(len(tasks)):
-                    if task["t"][2] > tasks[i]["t"][1]:
-                        penalty += task["t"][2] - tasks[i]["t"][1]
-                        break
+        for i in range(len(crossGene)):
+            if crossGene[i] == 0:
+                gene = instance1Cpy.pop(0)
+                newSolution.append(gene)
+                instance2Cpy.remove(gene)
+            else:
+                gene = instance2Cpy.pop(0)
+                newSolution.append(gene)
+                instance1Cpy.remove(gene)
                 
-        instance.apt = makespan + (penalty*10)
-
+        childInstance = InstanceJSS(newSolution)
+        
+        if random.uniform(0,1) < self.mutationRate:
+            childInstance.mutate()
+        
+        return childInstance
     
-    def crossover(self,population: List[InstanceJSS],):
-        population.sort(key = lambda x: x.apt)
+    #Crossover da população, sempre gera o dobro de indivíduos  
+    def crossover(self, population: List[InstanceJSS]):
         max = sum(1/x.apt for x in population)
         newPopulation = []
         while population:
@@ -153,54 +179,18 @@ class ContextJSS():
                     instance2 = population.pop(i)
                     max -= instance2.apt
                     break
-            newInstance1 = self.crossoverInstance(instance1,instance2)
-            newInstance2 = self.crossoverInstance(instance2,instance1)
             
-            newPopulation.append(newInstance1)
-            newPopulation.append(newInstance2)
+            newInstances = [self.crossoverInstances(instance1, instance2) for _ in range(2)]
+            newPopulation.extend(newInstances)
             newPopulation.append(instance1)
             newPopulation.append(instance2)
             
         return newPopulation
     
-    def crossoverInstance(self,instance1: 'InstanceJSS',instance2: 'InstanceJSS') -> 'InstanceJSS':
-        newGene = []
-        for i in range(len(instance1.taskSeq)):
-            if i % 2 == 0:
-                newGene.append(copy.deepcopy(instance1.taskSeq[i]))
-            else:
-                newGene.append(copy.deepcopy(instance2.taskSeq[i]))
-        instance = InstanceJSS(newGene, self.T)
-        self.mutate(instance)
-        return instance
-        
-    def mutate(self,instance: 'InstanceJSS'):
-        if random.random() < self.mutationRate:
-            mutation = random.randint(0,1)
-            m = random.randint(0,self.M - 1)
-            if mutation == 0:
-                i = random.randint(0,len(instance.taskSeq[m]) - 1)
-                j = random.randint(0,len(instance.taskSeq[m]) - 1)
-                
-                move = SwapMove(i,j,m)
-                
-                if move.canBeApplied(self,instance):
-                    move.apply(self,instance)
-                    
-            else:
-                i = random.randint(0,len(instance.taskSeq[m]) - 1)
-                duration = self.T[instance.taskSeq[m][i][0]][m]
-                t = instance.taskSeq[m][i][1] + random.randint(-duration,duration)
-                
-                move = RealocMove(i,t,m)
-                
-                if move.canBeApplied(self,instance):
-                    move.apply(self,instance)
-                    
-            instance.rescheduleSolution(m)
-            
+    #Seleção de indivíduos a partir de torneio
     def selectNewPopulation(self, population: List[InstanceJSS]):
         newPopulation = []
+        
         while population:
             instance1 = random.choice(population)
             population.remove(instance1)
@@ -210,116 +200,81 @@ class ContextJSS():
                 newPopulation.append(instance1)
             else:
                 newPopulation.append(instance2)
+                
         return newPopulation
+    
+    def runGA(self, generationLimit: int, return_dict: dict):
+        population : List[InstanceJSS] = []
 
-class Move():
-    def apply(self, problemCtx: 'ContextJSS', sol: InstanceJSS):
-        pass
-    def canBeApplied(self, problemCtx: 'ContextJSS', sol: InstanceJSS):
-        pass
-    def eq(self, problemCtx: 'ContextJSS', m2: 'Move'):
-        pass
+        population = context.createInitialPopulation()
 
-#Movimento de Troca I por J
-class SwapMove(Move):
-    def __init__(self, i: int, j: int, m: int):
-        self.i = i
-        self.j = j
-        self.m = m
-    def __str__(self):
-        return f"SwapMove({self.i},{self.j},{self.m})"
-    def apply(self, problemCtx: 'ContextJSS', sol: InstanceJSS):   
-        TaskI = sol.taskSeq[self.m][self.i]
-        TaskJ = sol.taskSeq[self.m][self.j]
+        for instance in population:
+            context.evaluateSolution(instance)
+            
+        population.sort(key = lambda x: x.apt)
+        bestInstance = population[0]
+        worstInstance = population[-1]
+
+        nGenerations = float("inf") if generationLimit == -1 else generationLimit
+            
+        currentIteration = 0
+
+        while currentIteration < nGenerations:
+            currentIteration += 1
+            
+            population = context.crossover(population)
+            
+            print(f"\nGeneration {currentIteration}")
+            
+            for i in range(populationSize*2):
+                context.evaluateSolution(population[i])
+                
+            population = context.selectNewPopulation(population)
+            population.sort(key = lambda x: x.apt)
+            
+            print("Best Fitness: ", population[0].apt)
+            print("AVG Fitness: ", sum(x.apt for x in population)/populationSize)
+            
+            if population[0].apt < bestInstance.apt:
+                bestInstance = population[0]
+            if population[-1].apt > worstInstance.apt:
+                worstInstance = population[-1]
+                
+            return_dict["best"] = bestInstance
+            return_dict["worst"] = worstInstance
+            
         
-        sol.taskSeq[self.m][self.i] = [TaskJ[0], TaskI[1], TaskJ[2]]
-        sol.taskSeq[self.m][self.j] = [TaskI[0], TaskJ[1], TaskI[2]]
-    def canBeApplied(self, problemCtx: 'ContextJSS', sol: 'InstanceJSS'):
-        jobI = sol.taskSeq[self.m][self.i][0]
-        jobJ = sol.taskSeq[self.m][self.j][0]
-        
-        iDuration = problemCtx.T[jobI][self.m]
-        jDuration = problemCtx.T[jobJ][self.m]
-        
-        iStartingTime = sol.taskSeq[self.m][self.i][1]
-        jStartingTime = sol.taskSeq[self.m][self.j][1]
-        
-        if iStartingTime + jDuration > problemCtx.maxTimeUnits or jStartingTime + iDuration > problemCtx.maxTimeUnits:
-            return False
-        return True
+                     
+    
+mutationRate = 0.15
+populationSize = 20
 
-#Movimento de realocação, move o tempo inicial de uma tarefa i para um tempo t
-#Verifica quem ocupa o tempo t e insere a tarefa i antes no taskSeq
-class RealocMove(Move):
-    def __init__(self, i: int, t: int, m: int):
-        self.i = i
-        self.t = t
-        self.m = m
-    def __str__(self):
-        return f"RealocMove({self.i},{self.t},{self.m})"
-    def apply(self, problemCtx: 'ContextJSS', sol: InstanceJSS):
-        task = sol.taskSeq[self.m].pop(self.i)
-        NewTask = [task[0], self.t, task[2]]
-        taskBefore = 0
-        while taskBefore < len(sol.taskSeq[self.m]) and sol.taskSeq[self.m][taskBefore][2] <= task[1]:
-            taskBefore += 1
-        
-        if taskBefore == len(sol.taskSeq[self.m]):
-            sol.taskSeq[self.m].append(NewTask)
-        else:
-            sol.taskSeq[self.m].insert(taskBefore, NewTask)         
-    def canBeApplied(self, problemCtx, sol: 'InstanceJSS'):
-        maxTimeUnits = problemCtx.maxTimeUnits
-        task = sol.taskSeq[self.m][self.i]
-        return self.t + problemCtx.T[task[0]][self.m] <= maxTimeUnits and self.t >= 0
-           
+context = ContextJSS(mutationRate, populationSize)
 
-        
-        
-
-
-
-
-context = ContextJSS()
 context.load("job-shop.txt")
 
-population : List[InstanceJSS] = []
+time_limit = int(input("Tempo limite em segundos: (-1 para sem limite)\n"))
+generationLimit = int(input("Limite de gerações: (-1 para sem limite)\n"))
 
-bestInstance = None
+#Overkill para garantir que seja feito por multiprocessamento
+manager = multiprocessing.Manager()
+return_dict = manager.dict()
 
-populationSize = 100
+p = multiprocessing.Process(target=context.runGA, name="GA", args=(generationLimit,return_dict))
+p.start()
 
-for i in range(populationSize):
-    population.append(context.generateSolution())
+if time_limit != -1:
+    p.join(time_limit)
+else:
+    p.join()
 
-for i in range(populationSize):
-    context.evaluateInstance(population[i])
-
-bestInstance = population[0]
-        
-
-nGenerations = 10000
-currentIteration = 0
-
-population.sort(key = lambda x: x.apt)
-
-while currentIteration < nGenerations:
-    currentIteration += 1
+if p.is_alive():
+    p.terminate()
     
-    population = context.crossover(population)
-    
-    print(f"\nGeneration {currentIteration}")
-    
-    for i in range(populationSize*2):
-        context.evaluateInstance(population[i])
-        
-    population.sort(key = lambda x: x.apt)
-    population = context.selectNewPopulation(population)
-    
-    print("Best Fitness: ", population[0].apt)
-    print("AVG Fitness: ", sum(x.apt for x in population)/populationSize)
-    
-    if population[0].apt < bestInstance.apt:
-        bestInstance = population[0]
+bestInstance, worstInstance = return_dict["best"], return_dict["worst"]
 
-print(bestInstance)
+print("\nBest Solution: ")  
+context.printDetailedSolution(bestInstance)
+
+print("\nWorse Solution: ")
+context.printDetailedSolution(worstInstance)
