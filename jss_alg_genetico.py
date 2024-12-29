@@ -46,7 +46,7 @@ class ContextJSS():
         
         self.maxTimeUnits = 0
         
-        self.mutationRate = 0.15
+        self.mutationRate = 0.3
         
     def load(self, fileName: str):
         file = open(fileName, "r")
@@ -189,7 +189,8 @@ class ContextJSS():
                     
             else:
                 i = random.randint(0,len(instance.taskSeq[m]) - 1)
-                t = instance.taskSeq[m][i][1] + random.randint(-3,3)
+                duration = self.T[instance.taskSeq[m][i][0]][m]
+                t = instance.taskSeq[m][i][1] + random.randint(-duration,duration)
                 
                 move = RealocMove(i,t,m)
                 
@@ -297,7 +298,7 @@ for i in range(populationSize):
 bestInstance = population[0]
         
 
-nGenerations = 1000
+nGenerations = 10000
 currentIteration = 0
 
 population.sort(key = lambda x: x.apt)
