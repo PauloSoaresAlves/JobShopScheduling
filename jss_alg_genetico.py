@@ -1,5 +1,5 @@
 from typing import List
-import multiprocessing, time, random
+import multiprocessing, random
 
 #Classe que representa um indivíduo da população
 class InstanceJSS():
@@ -253,7 +253,7 @@ context = ContextJSS(mutationRate, populationSize)
 
 context.load("job-shop.txt")
 
-time_limit = int(input("Tempo limite em segundos: (-1 para sem limite)\n"))
+timeLimit = int(input("Tempo limite em segundos: (-1 para sem limite)\n"))
 generationLimit = int(input("Limite de gerações: (-1 para sem limite)\n"))
 
 #Overkill para garantir que seja feito por multiprocessamento
@@ -263,8 +263,8 @@ return_dict = manager.dict()
 p = multiprocessing.Process(target=context.runGA, name="GA", args=(generationLimit,return_dict))
 p.start()
 
-if time_limit != -1:
-    p.join(time_limit)
+if timeLimit != -1:
+    p.join(timeLimit)
 else:
     p.join()
 
