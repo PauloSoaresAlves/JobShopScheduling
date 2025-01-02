@@ -1,3 +1,4 @@
+import time
 from typing import List
 import multiprocessing, random
 
@@ -163,7 +164,7 @@ class ContextJSS():
             move = NSSwapMove.randomMove(self, solution)
             move.apply(self, solution)
             
-    def runILS(self, ILSMaxIterations: int, rollbackChance: float, k: int, return_dict: dict):
+    def runILS(self, ILSMaxIterations: int, rollbackChance: float, k: int, goal: int,return_dict: dict):
         kLinha = k
         
         s = self.generateInitialSolution()
@@ -205,6 +206,10 @@ class ContextJSS():
                 
                 bestIteration = currentIteration
                 k = kLinha
+                
+                if goal != -1 and bestScore <= goal:
+                    break
+                
             else:
                 k = min(k + 1, (context.J * context.M) // 2) 
     
@@ -279,13 +284,17 @@ context.load("job-shop.txt")
 
 timeLimit = int(input("Tempo limite em segundos: (-1 para sem limite)\n"))
 ILSMaxIterations = int(input("Limite de Diferença entre Iterações: (-1 para sem limite)\n"))
+scoreGoal = int(input("Makespan Objetivo: (-1 para sem objetivo)\n"))
 
 
 #Overkill para garantir que seja feito por multiprocessamento
 manager = multiprocessing.Manager()
 return_dict = manager.dict()
 
-p = multiprocessing.Process(target=context.runILS, name="GA", args=(ILSMaxIterations, rollbackChance, k, return_dict))
+p = multiprocessing.Process(target=context.runILS, name="GA", args=(ILSMaxIterations, rollbackChance, k, scoreGoal, return_dict))
+
+tInicial = time.time()
+
 p.start()
 
 if timeLimit != -1:
@@ -296,10 +305,13 @@ else:
 if p.is_alive():
     p.terminate()
     
+tFinal = time.time()
+    
 bestSolution , bestScore = return_dict["best"], return_dict["bestScore"]
 
 print(f"Best Solution: {bestSolution}")
 print(f"Best Score: {bestScore}")
+print(f"Time: {round(tFinal - tInicial,3)}s")
     
 
 

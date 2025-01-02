@@ -1,3 +1,4 @@
+import time
 from typing import List
 import multiprocessing, random
 
@@ -203,7 +204,7 @@ class ContextJSS():
                 
         return newPopulation
     
-    def runGA(self, generationLimit: int, return_dict: dict):
+    def runGA(self, generationLimit: int, goal: int, return_dict: dict):
         population : List[InstanceJSS] = []
 
         population = context.createInitialPopulation()
@@ -235,10 +236,14 @@ class ContextJSS():
             print("Best Fitness: ", population[0].apt)
             print("AVG Fitness: ", sum(x.apt for x in population)/populationSize)
             
-            if population[0].apt < bestInstance.apt:
-                bestInstance = population[0]
             if population[-1].apt > worstInstance.apt:
                 worstInstance = population[-1]
+            if population[0].apt < bestInstance.apt:
+                bestInstance = population[0]
+                
+                if goal != -1 and bestInstance.apt <= goal:
+                    break
+            
                 
             return_dict["best"] = bestInstance
             return_dict["worst"] = worstInstance
@@ -255,12 +260,15 @@ context.load("job-shop.txt")
 
 timeLimit = int(input("Tempo limite em segundos: (-1 para sem limite)\n"))
 generationLimit = int(input("Limite de gerações: (-1 para sem limite)\n"))
+scoreGoal = int(input("Makespan Objetivo: (-1 para sem objetivo)\n"))
 
 #Overkill para garantir que seja feito por multiprocessamento
 manager = multiprocessing.Manager()
 return_dict = manager.dict()
 
-p = multiprocessing.Process(target=context.runGA, name="GA", args=(generationLimit,return_dict))
+p = multiprocessing.Process(target=context.runGA, name="GA", args=(generationLimit,scoreGoal,return_dict))
+
+tInitial = time.time()
 p.start()
 
 if timeLimit != -1:
@@ -271,10 +279,16 @@ else:
 if p.is_alive():
     p.terminate()
     
+tFinal = time.time()
+    
 bestInstance, worstInstance = return_dict["best"], return_dict["worst"]
+
+print("\nWorse Solution: ")
+context.printDetailedSolution(worstInstance)
 
 print("\nBest Solution: ")  
 context.printDetailedSolution(bestInstance)
 
-print("\nWorse Solution: ")
-context.printDetailedSolution(worstInstance)
+print(f"\nTime: {round(tFinal - tInitial,3)}s")
+
+
